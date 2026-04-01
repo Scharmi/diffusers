@@ -9,7 +9,7 @@ from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
 
-class Denoiser(ABC):
+class Solver(ABC):
     model: Predictor
     schedules: ScheduleGroup
 
@@ -51,7 +51,7 @@ class Denoiser(ABC):
         pass
 
 
-class DiscreteDenoiser(Denoiser):
+class DiscreteSolver(Solver):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
         T = int(self.model.timestep_config.T)
         t = t.as_discrete(T)
@@ -61,26 +61,26 @@ class DiscreteDenoiser(Denoiser):
         sigma_t = self.schedules.sigma(t).view(-1, 1, 1, 1)
         alpha_t_prev = self.schedules.alpha(t_prev).view(-1, 1, 1, 1)
         sigma_t_prev = self.schedules.sigma(t_prev).view(-1, 1, 1, 1)
-
-        # Assumes eta = 1
+        eta_t_prev = self.schedules.eta(t, t_prev).view(-1, 1, 1, 1)
 
         noise_pred = self.model(x_t, timestep=t)
-        mean = (
-            alpha_t_prev / alpha_t
-        ) * x_t - sigma_t * alpha_t_prev / alpha_t * noise_pred
+        mean = (alpha_t_prev / alpha_t) * x_t + (
+            sigma_t_prev * torch.sqrt(1 - eta_t_prev**2)
+            - sigma_t * alpha_t_prev / alpha_t
+        ) * noise_pred
 
-        noise = torch.randn_like(x_t) * sigma_t_prev
+        noise = torch.randn_like(x_t) * sigma_t_prev * eta_t_prev
 
         return mean + noise
 
 
-class ContinuousDenoiser(Denoiser):
+class ContinuousSolver(Solver):
     @torch.no_grad()
     def denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep) -> torch.Tensor:
         return self._denoise(x_t, t.as_continuous(1.0), t_prev.as_continuous(1.0))
 
 
-class EulerODEDenoiser(ContinuousDenoiser):
+class EulerODESolver(ContinuousSolver):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
         alpha_t = self.schedules.alpha(t).view(-1, 1, 1, 1)
         d_alpha_t = self.schedules.alpha.derivative(t).view(-1, 1, 1, 1)
@@ -96,7 +96,7 @@ class EulerODEDenoiser(ContinuousDenoiser):
         return x_t_prev
 
 
-class HeunODEDenoiser(ContinuousDenoiser):
+class HeunODESolver(ContinuousSolver):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
         h = t_prev.steps.view(-1, 1, 1, 1) - t.steps.view(-1, 1, 1, 1)
 
@@ -116,7 +116,7 @@ class HeunODEDenoiser(ContinuousDenoiser):
         return x_t_prev
 
 
-class EulerMaruyamaSDEDenoiser(ContinuousDenoiser):
+class EulerMaruyamaSDESolver(ContinuousSolver):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
         alpha_t = self.schedules.alpha(t).view(-1, 1, 1, 1)
         d_alpha_t = self.schedules.alpha.derivative(t).view(-1, 1, 1, 1)
@@ -138,7 +138,7 @@ class EulerMaruyamaSDEDenoiser(ContinuousDenoiser):
         return x_t_prev
 
 
-class HeunSDEDenoiser(ContinuousDenoiser):
+class HeunSDESolver(ContinuousSolver):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
         h = t_prev.steps.view(-1, 1, 1, 1) - t.steps.view(-1, 1, 1, 1)
         eta_t_inf = 1.0

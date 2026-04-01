@@ -1,5 +1,3 @@
-# from typing import cast
-# from src.timestep import Timestep
 import os
 import sys
 
@@ -11,14 +9,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets, transforms
 
 from src import distributed
-from src.denoiser import (
-    Denoiser,
-    DiscreteDenoiser,
-    EulerMaruyamaSDEDenoiser,
-    EulerODEDenoiser,
-    HeunODEDenoiser,
-    HeunSDEDenoiser,
-)
 from src.distributed import RANK, WORLD_SIZE
 from src.generator import Generator
 from src.model import (  # noqa
@@ -27,49 +17,62 @@ from src.model import (  # noqa
     Predictor,
 )
 from src.schedule import (
+    ConstantEtaSchedule,
     CosineAlphaSchedule,
     CosineSigmaSchedule,
+    DDPMEtaSchedule,
     HuggingFaceDDPMAlphaSchedule,
     HuggingFaceDDPMSigmaSchedule,
     LinearAlphaSchedule,
     LinearSigmaSchedule,
     ScheduleGroup,
 )
-from src.schedule.sampling import AYSConfig, AYSSamplingSchedule, LinearSamplingSchedule
+from src.schedule.sampling import AYSConfig, AYSSamplingSchedule
+from src.solver import (
+    DiscreteSolver,
+    EulerMaruyamaSDESolver,
+    EulerODESolver,
+    HeunODESolver,
+    HeunSDESolver,
+    Solver,
+)
 from src.trainer import Trainer
 
 BATCH_SIZE = 512
 T = 1000
 
-DENOISER_CONFIGS = {
+SOLVER_CONFIGS = {
     "discrete": {
-        "denoiser": DiscreteDenoiser,
+        "denoiser": DiscreteSolver,
     },
     "euler": {
-        "denoiser": EulerODEDenoiser,
+        "denoiser": EulerODESolver,
     },
     "heun": {
-        "denoiser": HeunODEDenoiser,
+        "denoiser": HeunODESolver,
     },
     "euler_maruyama": {
-        "denoiser": EulerMaruyamaSDEDenoiser,
+        "denoiser": EulerMaruyamaSDESolver,
     },
     "heun_sde": {
-        "denoiser": HeunSDEDenoiser,
+        "denoiser": HeunSDESolver,
     },
 }
 SCHEDULE_CONFIGS = {
     "linear": {
         "alpha_schedule": LinearAlphaSchedule,
         "sigma_schedule": LinearSigmaSchedule,
+        "eta_schedule": lambda: ConstantEtaSchedule(eta_value=1.0),
     },
     "cosine": {
         "alpha_schedule": CosineAlphaSchedule,
         "sigma_schedule": CosineSigmaSchedule,
+        "eta_schedule": lambda: ConstantEtaSchedule(eta_value=1.0),
     },
     "hf_ddpm": {
         "alpha_schedule": HuggingFaceDDPMAlphaSchedule,
         "sigma_schedule": HuggingFaceDDPMSigmaSchedule,
+        "eta_schedule": DDPMEtaSchedule,
     },
 }
 DATASET_CONFIGS = {
@@ -99,13 +102,13 @@ DATASET_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "euler_maruyama"
-denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
+SOLVER_CONFIG_NAME = "discrete"
+solver_config = SOLVER_CONFIGS[SOLVER_CONFIG_NAME]
 
-SCHEDULE_CONFIG_NAME = "cosine"
+SCHEDULE_CONFIG_NAME = "hf_ddpm"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
-DATASET_CONFIG_NAME = "fashion"
+DATASET_CONFIG_NAME = "mnist"
 dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 
@@ -153,6 +156,7 @@ def train():
     schedules = ScheduleGroup(
         alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
         sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
+        eta_schedule=schedule_config["eta_schedule"](),  # ty: ignore
     )
 
     logger.info(f"Using T: {T}")
@@ -178,19 +182,23 @@ def train():
 
 
 def generate():
-    if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
-        os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
+    if not os.path.exists(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
+        os.makedirs(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    # model_id = "1aurent/ddpm-mnist"
-    # model = NoisePredictorHuggingface(model_id=model_id).cuda()
-    model = Predictor.load_from_file("./models/noise_predictor_unet_fashion.pth").cuda()
+    model_id = "1aurent/ddpm-mnist"
+    model = NoisePredictorHuggingface(model_id=model_id).cuda()
+    # model = Predictor.load_from_file("./models/noise_predictor_unet_fashion.pth").cuda()
     # model.load()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
+
+    alpha_schedule = schedule_config["alpha_schedule"](model_id)  # ty: ignore
+    sigma_schedule = schedule_config["sigma_schedule"](model_id)  # ty: ignore
     schedules = ScheduleGroup(
-        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
-        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
+        alpha_schedule=alpha_schedule,  # ty: ignore
+        sigma_schedule=sigma_schedule,  # ty: ignore
+        eta_schedule=schedule_config["eta_schedule"](alpha_schedule, sigma_schedule),  # ty: ignore
     )
 
     # print(
@@ -202,14 +210,14 @@ def generate():
     #     )
     # )
 
-    logger.info(f"Using denoiser config: {DENOISER_CONFIG_NAME}")
-    denoiser: Denoiser = denoiser_config["denoiser"](
+    logger.info(f"Using denoiser config: {SOLVER_CONFIG_NAME}")
+    solver: Solver = solver_config["denoiser"](
         model=model,
         schedules=schedules,
     )
 
     generator = Generator(
-        denoiser=denoiser,
+        solver=solver,
         n_channels=dataset_config["channels"],  # ty: ignore
         img_width=dataset_config["img_width"],  # ty: ignore
         img_height=dataset_config["img_height"],  # ty: ignore
@@ -225,16 +233,16 @@ def generate():
     # timesteps.steps = timesteps.steps.cuda()
     # timesteps = timesteps.reverse()
 
-    timesteps = LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=100)
-    timesteps.steps = timesteps.steps.cuda()
+    # timesteps = LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=100)
+    # timesteps.steps = timesteps.steps.cuda()
 
     n_samples = 16
-    generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
+    generated = generator.generate(n_samples=n_samples, skip_last_step=True)
 
     for i in range(n_samples):
         img = generated[i]
         torchvision.utils.save_image(
-            img, f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i + 1}.png"
+            img, f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i + 1}.png"
         )
 
 
@@ -252,10 +260,11 @@ def ays():
     schedules = ScheduleGroup(
         alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
         sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
+        eta_schedule=schedule_config["eta_schedule"](),  # ty: ignore
     )
 
-    logger.info(f"Using denoiser config: {DENOISER_CONFIG_NAME}")
-    denoiser: Denoiser = denoiser_config["denoiser"](
+    logger.info(f"Using denoiser config: {SOLVER_CONFIG_NAME}")
+    denoiser: Solver = solver_config["denoiser"](
         model=model,
         schedules=schedules,
     )
@@ -266,13 +275,13 @@ def ays():
         config=AYSConfig(
             max_iter=1,
             max_finetune_iter=1,
-            save_file=f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
+            save_file=f"generated/ays_timesteps_{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
         ),
     )
 
     try:
         initial_t = torch.load(
-            f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt_10",
+            f"generated/ays_timesteps_{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt_10",
             weights_only=False,
         )
     except FileNotFoundError:

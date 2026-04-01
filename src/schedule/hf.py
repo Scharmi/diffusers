@@ -26,13 +26,13 @@ class HuggingFaceDDPMBaseSchedule(ABC):
         self.alphas_cumprod = torch.cumprod(alphas, dim=0)
 
     def get_alpha_at_t(self, timestep: Timestep) -> torch.Tensor:
-        t_adapted = timestep.adapt(TimestepConfig(kind="discrete", T=self.T - 1))
+        t_adapted = timestep.adapt(TimestepConfig(kind="discrete", T=self.T))
         t_indices = t_adapted.steps.long()
         self.alphas_cumprod = self.alphas_cumprod.to(t_indices.device)
         return torch.sqrt(self.alphas_cumprod[t_indices])
 
     def get_sigma_at_t(self, timestep: Timestep) -> torch.Tensor:
-        t_adapted = timestep.adapt(TimestepConfig(kind="discrete", T=self.T - 1))
+        t_adapted = timestep.adapt(TimestepConfig(kind="discrete", T=self.T))
         t_indices = t_adapted.steps.long()
         self.alphas_cumprod = self.alphas_cumprod.to(t_indices.device)
         return torch.sqrt(1.0 - self.alphas_cumprod[t_indices])

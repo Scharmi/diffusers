@@ -1,6 +1,7 @@
 import torch
 
 from src.schedule.alpha import AlphaSchedule
+from src.schedule.eta import EtaSchedule
 from src.schedule.sigma import SigmaSchedule
 from src.timestep import Timestep
 
@@ -51,10 +52,17 @@ class ScheduleGroup:
     alpha: AlphaSchedule
     sigma: SigmaSchedule
     lambda_: LambdaSchedule
+    eta: EtaSchedule
     edm_sigma: EDMSigmaSchedule
 
-    def __init__(self, alpha_schedule: AlphaSchedule, sigma_schedule: SigmaSchedule):
+    def __init__(
+        self,
+        alpha_schedule: AlphaSchedule,
+        sigma_schedule: SigmaSchedule,
+        eta_schedule: EtaSchedule,
+    ):
         self.alpha = alpha_schedule
         self.sigma = sigma_schedule
+        self.eta = eta_schedule
         self.lambda_ = LambdaSchedule(alpha_schedule, sigma_schedule)
         self.edm_sigma = EDMSigmaSchedule(alpha_schedule, sigma_schedule)

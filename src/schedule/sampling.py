@@ -9,8 +9,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common import get_device
-from src.denoiser import Denoiser
 from src.diffusion import DiffusionMixin
+from src.solver import Solver
 from src.timestep import Timestep, TimestepConfig
 
 EPSILON = 1e-5
@@ -46,7 +46,7 @@ class AYSConfig:
 
 
 class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
-    denoiser: Denoiser
+    denoiser: Solver
     dataloader: DataLoader
     timestep_config: TimestepConfig
 
@@ -54,7 +54,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
         self,
         *,
         max_t: float = 0.95,
-        denoiser: Denoiser,
+        denoiser: Solver,
         dataloader: DataLoader,
         config: AYSConfig = AYSConfig(),
     ):
