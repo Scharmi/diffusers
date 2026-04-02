@@ -31,6 +31,6 @@ class EDMSamplingSchedule(SamplingSchedule):
         )
         sigmas = sigmas**self.rho
 
-        # TODO: Add 0 ?
+        sigmas = torch.cat([sigmas, torch.tensor([0.0])])
 
         return Timestep(TimestepConfig(kind="continuous", T=self.T), sigmas)

@@ -157,6 +157,10 @@ class Trainer:
 
                 loss.backward()
 
+                torch.nn.utils.clip_grad_norm_(
+                    self.raw_model.parameters(), max_norm=1.0
+                )
+
                 self.optimizer.step()
                 lr_scheduler.step()
 
