@@ -13,8 +13,8 @@ from src.distributed import RANK, WORLD_SIZE
 from src.generator import Generator
 from src.model import (  # noqa
     NoisePredictorHuggingface,
-    NoisePredictorUNet,
     Predictor,
+    PredictorUNet,
 )
 from src.schedule import (
     ConstantEtaSchedule,
@@ -27,7 +27,7 @@ from src.schedule import (
     LinearSigmaSchedule,
     ScheduleGroup,
 )
-from src.schedule.sampling import AYSConfig, AYSSamplingSchedule
+from src.schedule.sampling import AYSConfig, AYSSamplingSchedule, LinearSamplingSchedule
 from src.solver import (
     DiscreteSolver,
     EulerMaruyamaSDESolver,
@@ -100,6 +100,14 @@ DATASET_CONFIGS = {
         "img_width": 32,
         "img_height": 32,
     },
+    "celeb": {
+        "class": datasets.CelebA,
+        "mean": (0.5, 0.5, 0.5),
+        "std": (0.5, 0.5, 0.5),
+        "channels": 3,
+        "img_width": 256,
+        "img_height": 256,
+    },
 }
 
 SOLVER_CONFIG_NAME = "discrete"
@@ -108,7 +116,7 @@ solver_config = SOLVER_CONFIGS[SOLVER_CONFIG_NAME]
 SCHEDULE_CONFIG_NAME = "hf_ddpm"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
-DATASET_CONFIG_NAME = "mnist"
+DATASET_CONFIG_NAME = "celeb"
 dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 
@@ -160,7 +168,7 @@ def train():
     )
 
     logger.info(f"Using T: {T}")
-    model = NoisePredictorUNet(
+    model = PredictorUNet(
         T=T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
@@ -185,7 +193,9 @@ def generate():
     if not os.path.exists(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    model_id = "1aurent/ddpm-mnist"
+    # model_id = "1aurent/ddpm-mnist"
+    # model_id = "google/ddpm-cifar10-32"
+    model_id = "google/ddpm-celebahq-256"
     model = NoisePredictorHuggingface(model_id=model_id).cuda()
     # model = Predictor.load_from_file("./models/noise_predictor_unet_fashion.pth").cuda()
     # model.load()
@@ -233,11 +243,13 @@ def generate():
     # timesteps.steps = timesteps.steps.cuda()
     # timesteps = timesteps.reverse()
 
-    # timesteps = LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=100)
-    # timesteps.steps = timesteps.steps.cuda()
+    timesteps = (
+        LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=50).as_discrete(T)
+    )
+    timesteps.steps = timesteps.steps.cuda()
 
-    n_samples = 16
-    generated = generator.generate(n_samples=n_samples, skip_last_step=True)
+    n_samples = 1
+    generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
 
     for i in range(n_samples):
         img = generated[i]
@@ -247,7 +259,7 @@ def generate():
 
 
 def ays():
-    model = NoisePredictorUNet(
+    model = PredictorUNet(
         T=T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore

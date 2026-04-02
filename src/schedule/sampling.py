@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common import get_device
-from src.diffusion import DiffusionMixin
+from src.diffusion import diffuse, diffuse_from
 from src.solver import Solver
 from src.timestep import Timestep, TimestepConfig
 
@@ -45,7 +45,7 @@ class AYSConfig:
     save_file: str = "generated/ays_timesteps.pt"
 
 
-class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
+class AYSSamplingSchedule(SamplingSchedule):
     denoiser: Solver
     dataloader: DataLoader
     timestep_config: TimestepConfig
@@ -154,11 +154,11 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
                 if skip_even and i % 2 == 0:
                     continue
 
-                t_prev = steps[i - 1].item()
+                s = steps[i - 1].item()
                 t = steps[i].item()
                 t_next = steps[i + 1].item()
 
-                candidates = self._get_candidates(t_prev, t, t_next)
+                candidates = self._get_candidates(s, t, t_next)
                 klub_per_candidate = []
 
                 pbar_steps.set_description(f"Iter {current_iter}: Optimizing t_{i}")
@@ -169,7 +169,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
                         f"t_{i} candidate: {cand.item():.4f}"
                     )
 
-                    klub = self._estimate_klub(t_prev, cand.item())
+                    klub = self._estimate_klub(s, cand.item())
                     klub += self._estimate_klub(cand.item(), t_next)
                     klub_per_candidate.append(klub)
 
@@ -229,9 +229,9 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
 
         return torch.tensor(new_steps, device=steps.device)
 
-    def _get_candidates(self, t_prev: float, t: float, t_next: float) -> torch.Tensor:
+    def _get_candidates(self, s: float, t: float, t_next: float) -> torch.Tensor:
         candidates = torch.linspace(
-            t_prev + EPSILON, t_next - EPSILON, self.config.n_candidates - 1
+            s + EPSILON, t_next - EPSILON, self.config.n_candidates - 1
         )
         candidates = torch.cat([torch.tensor([t]), candidates])
 
@@ -252,13 +252,13 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
             )
 
             # (batch, channels, height, width)
-            X_t, _ = self.diffuse(
+            X_t, _ = diffuse(
                 X,
                 timestep_samples,
                 self.denoiser.schedules,
             )
 
-            X_t_end = self.diffuse_from(
+            X_t_end = diffuse_from(
                 X,
                 X_t,
                 timestep_samples,

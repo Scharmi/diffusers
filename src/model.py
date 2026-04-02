@@ -18,9 +18,10 @@ from src.common import (
 from src.timestep import Timestep, TimestepConfig
 
 
-class ModuleMetadata(StrEnum):
+class PredictorMetadata(StrEnum):
     AlphaSchedule = "alpha_schedule"
     SigmaSchedule = "sigma_schedule"
+    EtaSchedule = "eta_schedule"
 
 
 class PersistableModule(nn.Module):
@@ -163,7 +164,7 @@ class Predictor(PersistableModule, ABC):
 
 
 # Model is conditioned on timestep from range [0, T] inclusive.
-class NoisePredictorUNet(Predictor):
+class PredictorUNet(Predictor):
     def __init__(
         self,
         *,
@@ -172,6 +173,7 @@ class NoisePredictorUNet(Predictor):
         img_height: int,
         T: int,
         suffix: str | None = None,
+        target: PredictionTarget = PredictionTarget.Noise,
         **_kwargs,
     ):
         super().__init__()
@@ -180,11 +182,11 @@ class NoisePredictorUNet(Predictor):
         self.n_channels = n_channels
         self.img_width = img_width
         self.img_height = img_height
-        self.target = PredictionTarget.Noise
+        self.target = target
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
         self.file_name = (
-            f"noise_predictor_unet{suffix if suffix is not None else ''}.pth"
+            f"{target.value}_predictor_unet{suffix if suffix is not None else ''}.pth"
         )
         self.unet = UNet2DModel(
             sample_size=img_width,
@@ -210,7 +212,7 @@ class NoisePredictorUNet(Predictor):
         return self.unet(x, timestep=timestep.steps).sample
 
 
-class NoisePredictorHuggingface(NoisePredictorUNet):
+class NoisePredictorHuggingface(PredictorUNet):
     def __init__(
         self,
         *,
@@ -242,6 +244,7 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
             img_width=img_width,
             img_height=img_height,
             T=T,
+            target=PredictionTarget.Noise,
             suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
         )
         self.unet = load_unet_pretrained(

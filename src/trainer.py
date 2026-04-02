@@ -9,9 +9,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.diffusion import DiffusionMixin
+from diffusion import diffuse
 from src.distributed import RANK, is_distributed
-from src.model import ModuleMetadata, Predictor
+from src.model import Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
@@ -29,7 +29,7 @@ class TrainingConfig:
     continuous_time: bool = True
 
 
-class Trainer(DiffusionMixin):
+class Trainer:
     raw_model: Predictor
     model: nn.Module
 
@@ -64,8 +64,9 @@ class Trainer(DiffusionMixin):
 
     def save_checkpoint(self):
         metadata = {
-            ModuleMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
-            ModuleMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
+            PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
+            PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
+            PredictorMetadata.EtaSchedule: self.schedules.eta.__class__.__name__,
         }
 
         self.raw_model.save(**metadata)
@@ -129,7 +130,7 @@ class Trainer(DiffusionMixin):
 
                 t = Timestep(self.raw_model.timestep_config, t)
 
-                X_noisy, noise = self.diffuse(X, t, self.schedules)
+                X_noisy, noise = diffuse(X, t, self.schedules)
                 noise_pred = self.model(X_noisy, timestep=t)
 
                 loss = self.criterion(
