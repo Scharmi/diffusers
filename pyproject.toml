@@ -7,10 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.12.0",
     "diffusers>=0.35.2",
+    "gdown>=5.2.1",
     "kaleido>=1.1.0",
     "loguru>=0.7.3",
     "numpy>=2.3.4",
     "plotly>=6.3.1",
+    "scipy>=1.17.1",
     "torch==2.4.1+cu121",
     "torchvision==0.19.1+cu121",
     "tqdm>=4.67.1",

@@ -52,9 +52,20 @@ def unnormalize(img: torch.Tensor) -> torch.Tensor:
     return torch.clamp(img, 0.0, 1.0)
 
 
-def get_dataloader(batch_size, dataset_class, train=True, shuffle=True, num_workers=2):
+def get_dataloader(
+    batch_size: int,
+    dataset_class: Type,
+    width: int,
+    height: int,
+    train=True,
+    shuffle=True,
+    num_workers=2,
+):
     transform = transforms.Compose(
         [
+            transforms.RandomResizedCrop(
+                size=(height, width), scale=(0.8, 1.0), ratio=(0.75, 1.33)
+            ),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]

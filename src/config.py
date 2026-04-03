@@ -22,7 +22,7 @@ from src.solver import (
 )
 from src.trainer import TimeSampler
 
-BATCH_SIZE = 512
+BATCH_SIZE = 128
 PREDICTOR_T = 1000
 
 SOLVER_CONFIGS = {
@@ -90,9 +90,15 @@ DATASET_CONFIGS = {
         "img_width": 256,
         "img_height": 256,
     },
+    "flowers": {
+        "class": datasets.Flowers102,
+        "channels": 3,
+        "img_width": 224,
+        "img_height": 224,
+    },
 }
 
-SOLVER_CONFIG_NAME = "euler"
+SOLVER_CONFIG_NAME = "heun"
 solver_config = SOLVER_CONFIGS[SOLVER_CONFIG_NAME]
 
 SCHEDULE_CONFIG_NAME = "edm"
@@ -104,7 +110,7 @@ eta_config = ETA_CONFIGS[ETA_CONFIG_NAME]
 EQUATION_CONFIG_NAME = "probability_flow"
 equation_config = EQUATION_CONFIGS[EQUATION_CONFIG_NAME]
 
-DATASET_CONFIG_NAME = "mnist"
+DATASET_CONFIG_NAME = "flowers"
 dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 timesampler_config = cast(TimeSampler, None)

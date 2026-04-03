@@ -104,7 +104,9 @@ def train():
 
     dataloader = get_dataloader(
         batch_size=BATCH_SIZE,
-        dataset_class=dataset_config["class"],
+        dataset_class=dataset_config["class"],  # ty: ignore
+        width=dataset_config["img_width"],  # ty: ignore
+        height=dataset_config["img_height"],  # ty: ignore
     )
     trainer.train(dataloader)
 
@@ -119,7 +121,7 @@ def generate():
         os.makedirs(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
     # model = NoisePredictorHuggingface(model_id=model_id).cuda()
-    model = Predictor.load_from_file("./models/x0_predictor_edm2_mnist.pth").cuda()
+    model = Predictor.load_from_file("./models/x0_predictor_edm_cifar10.pth").cuda()
     print(sum(p.numel() for p in model.parameters()))
 
     model.load()
@@ -160,7 +162,7 @@ def generate():
 
     timesteps = EDMSamplingSchedule(T=PREDICTOR_T).get_timesteps(n_steps=100).cuda()
 
-    n_samples = 10
+    n_samples = 30
     generated = generator.generate(
         n_samples=n_samples,
         timesteps=timesteps,
@@ -202,7 +204,9 @@ def ays():
         denoiser=solver,
         dataloader=get_dataloader(
             batch_size=BATCH_SIZE,
-            dataset_class=dataset_config["class"],
+            dataset_class=dataset_config["class"],  # ty: ignore
+            width=dataset_config["img_width"],  # ty: ignore
+            height=dataset_config["img_height"],  # ty: ignore
         ),
         config=AYSConfig(
             max_iter=1,
