@@ -12,10 +12,6 @@ from src.timestep import Timestep, TimestepConfig
 class Generator:
     solver: Solver
 
-    n_channels: int
-    img_width: int
-    img_height: int
-
     # Assumes timesteps are provided in decreasing order.
     # In case of continuous timesteps, max_t should be set to values
     # close to T e.g. 0.99 when T=1 to deal with exploding values.
@@ -63,9 +59,11 @@ class Generator:
 
         logger.info(f"Using timesteps: {timesteps.steps.cpu().numpy()}")
 
-        x_t = torch.randn(
-            n_samples, self.n_channels, self.img_width, self.img_height, device=device
-        )
+        n_channels = self.solver.equation.model.n_channels
+        img_width = self.solver.equation.model.img_width
+        img_height = self.solver.equation.model.img_height
+
+        x_t = torch.randn(n_samples, n_channels, img_width, img_height, device=device)
 
         if variance_exploding:
             logger.info("Using variance exploding noise for generation.")

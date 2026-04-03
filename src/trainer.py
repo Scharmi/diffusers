@@ -170,14 +170,12 @@ class Trainer:
                 pbar.set_postfix({"loss": avg_loss})
 
                 if get_rank() == 0 and is_distributed():
-                    wandb.log(
-                        {
-                            "train/loss_step": loss.item(),
-                            "train/loss_avg": avg_loss,
-                            "train/learning_rate": lr_scheduler.get_last_lr()[0],
-                            "train/epoch": epoch,
-                            "global_step": self.total_steps_executed,
-                        }
+                    self._log_metrics(
+                        loss=loss.item(),
+                        avg_loss=avg_loss,
+                        lr=self.optimizer.param_groups[0]["lr"],
+                        epoch=epoch,
+                        global_step=self.total_steps_executed,
                     )
 
                 if (
@@ -191,3 +189,34 @@ class Trainer:
 
         if get_rank() == 0:
             self.save_checkpoint()
+
+    def _log_metrics(
+        self,
+        loss: float,
+        avg_loss: float,
+        lr: float,
+        epoch: int,
+        global_step: int,
+    ):
+        device = torch.cuda.current_device()
+
+        vram_total_bytes = torch.cuda.get_device_properties(device).total_memory
+        vram_allocated_bytes = torch.cuda.memory_allocated(device)
+        vram_reserved_bytes = torch.cuda.memory_reserved(device)
+        gb_divider = 1024**3
+
+        wandb.log(
+            {
+                "train/loss_step": loss,
+                "train/loss_avg": avg_loss,
+                "train/learning_rate": lr,
+                "train/epoch": epoch,
+                "train/vram_allocated_gb": vram_allocated_bytes / gb_divider,
+                "train/vram_reserved_gb": vram_reserved_bytes / gb_divider,
+                "train/vram_total_gb": vram_total_bytes / gb_divider,
+                "train/vram_utilization_%": (vram_allocated_bytes / vram_total_bytes)
+                * 100,
+                "global_step": self.total_steps_executed,
+            },
+            step=self.total_steps_executed,
+        )
