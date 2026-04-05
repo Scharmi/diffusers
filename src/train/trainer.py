@@ -9,6 +9,7 @@ import torch
 import wandb
 from loguru import logger
 from torch import nn, optim
+from torch.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -38,8 +39,9 @@ class TrainingConfig:
     checkpoint_dir: str = "models/"
     checkpoint_interval_steps: int = 100
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
-    use_ema: bool = True
+    use_ema: bool = True  # Exponential Moving Average
     ema_update_every_n_steps: int = 10
+    use_amp: bool = True  # Automatic Mixed Precision
 
 
 class Trainer:
@@ -63,6 +65,13 @@ class Trainer:
 
         self.optimizer = optim.AdamW(self.raw_model.parameters(), lr=self.config.lr)
         self.criterion = nn.MSELoss(reduction="none")
+
+        self.amp_dtype = (
+            torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        )
+
+        needs_scaler = self.config.use_amp and self.amp_dtype == torch.float16
+        self.scaler = GradScaler(device="cuda", enabled=needs_scaler)
 
         self.current_epoch = 0
         self.total_steps_executed = 0
@@ -88,6 +97,7 @@ class Trainer:
             "epoch": self.current_epoch,
             "total_steps": self.total_steps_executed,
             "optimizer_state_dict": self.optimizer.state_dict(),
+            "scaler_state_dict": self.scaler.state_dict(),
         }
         torch.save(trainer_state, self._get_trainer_state_path())
 
@@ -120,6 +130,11 @@ class Trainer:
         if self.config.use_ema:
             ema_wrapper = ExpMovingAverageWrapper(self.raw_model)
             logger.info("Using Exponential Moving Average (EMA)")
+
+        if self.config.use_amp:
+            logger.info(
+                f"Using Automatic Mixed Precision (AMP) with dtype {self.amp_dtype}"
+            )
 
         self.model.train()
         for epoch in range(self.current_epoch, self.config.epochs):
@@ -159,22 +174,35 @@ class Trainer:
 
                 t = Timestep(self.raw_model.timestep_config, t)
 
-                X_noisy, noise = diffuse(X, t, self.schedules)
-                pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
+                with autocast(
+                    device_type="cuda",
+                    dtype=self.amp_dtype,
+                    enabled=self.config.use_amp,
+                ):
+                    X_noisy, noise = diffuse(X, t, self.schedules)
+                    pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
 
-                target = noise if self.raw_model.target == PredictionTarget.Noise else X
+                    target = (
+                        noise if self.raw_model.target == PredictionTarget.Noise else X
+                    )
 
-                weight = self.raw_model.loss_weight(t, self.schedules).view(-1, 1, 1, 1)
-                loss = self.criterion(pred, target) * weight
-                loss = loss.mean()
+                    weight = self.raw_model.loss_weight(t, self.schedules).view(
+                        -1, 1, 1, 1
+                    )
+                    loss = self.criterion(pred, target) * weight
+                    loss = loss.mean()
 
-                loss.backward()
+                self.scaler.scale(loss).backward()
+
+                if self.scaler.is_enabled():
+                    self.scaler.unscale_(self.optimizer)
 
                 torch.nn.utils.clip_grad_norm_(
                     self.raw_model.parameters(), max_norm=1.0
                 )
 
-                self.optimizer.step()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
                 lr_scheduler.step()
 
                 compute_time = time.time() - end_time - data_time
