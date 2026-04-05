@@ -53,7 +53,7 @@ def train(
     predictor_t: int = typer.Option(
         1000, "--predictor-t", help="Max time step predictor is trained on"
     ),
-    num_epochs: int = typer.Option(1000, "--num-epochs", help="Number of epochs"),
+    n_epochs: int = typer.Option(1000, "--n-epochs", help="Number of epochs"),
     checkpoint_interval: int = typer.Option(
         100, "--checkpoint-interval", help="save a checkpoint every N steps"
     ),
@@ -70,7 +70,7 @@ def train(
     logger.info(f"Stochasticity (eta): {eta.value}")
     logger.info(f"Batch Size: {batch_size}")
     logger.info(f"Predictor T: {predictor_t}")
-    logger.info(f"Number of epochs: {num_epochs}")
+    logger.info(f"Number of epochs: {n_epochs}")
     logger.info(f"Timesampler: {timesampler_config.value}")
 
     schedule_kwargs = {}
@@ -128,7 +128,7 @@ def train(
         schedules=schedules,
         config=TrainingConfig(
             time_sampler=timesampler_config,
-            epochs=num_epochs,
+            epochs=n_epochs,
             checkpoint_interval_steps=checkpoint_interval,
         ),
     )
