@@ -38,6 +38,9 @@ def train(
     model_size: ModelSize = typer.Option(
         ModelSize.SMALL, "--model-size", help="Model size (number of parameters)"
     ),
+    model_suffix: str = typer.Option(
+        "", "--model-suffix", help="Suffix to append to model checkpoints"
+    ),
     dataset: DatasetType = typer.Option(
         DatasetType.flowers, "--dataset", help="Target dataset for training"
     ),
@@ -59,7 +62,7 @@ def train(
     ),
     use_amp: bool = typer.Option(
         True,
-        "--use-amp/--no-use-amp",
+        "--amp/--no-amp",
         help="Whether to use automatic mixed precision training",
     ),
     n_workers: int = typer.Option(
@@ -124,7 +127,9 @@ def train(
         n_channels=dataset_config.channels,
         img_width=dataset_config.img_size,
         img_height=dataset_config.img_size,
-        suffix=f"_{dataset.value}",
+        suffix=f"_{dataset.value}_{model_suffix}"
+        if model_suffix
+        else f"_{dataset.value}",
     ).cuda()
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
