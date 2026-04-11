@@ -10,7 +10,7 @@ wheels/
 .venv
 data
 generated
-models
+models*
 wandb
 
 .ruff_cache/

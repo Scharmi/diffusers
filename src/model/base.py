@@ -15,6 +15,7 @@ class PredictorMetadata(StrEnum):
     AlphaSchedule = "alpha_schedule"
     SigmaSchedule = "sigma_schedule"
     EtaSchedule = "eta_schedule"
+    VAE: str = "vae"
 
 
 class PersistableModule(nn.Module):

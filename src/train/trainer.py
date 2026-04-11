@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from src.diffusion import diffuse
 from src.distributed import get_rank, get_world_size, is_distributed
-from src.model import PredictionTarget, Predictor, PredictorMetadata
+from src.model import VAE, PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 from src.train import ExpMovingAverageWrapper, WarmupCosineLR
@@ -47,15 +47,18 @@ class TrainingConfig:
 class Trainer:
     raw_model: Predictor
     model: nn.Module
+    vae: VAE | None
 
     def __init__(
         self,
         model: Predictor,
         schedules: ScheduleGroup,
         config: TrainingConfig = TrainingConfig(),
+        vae: VAE | None = None,
     ):
         self.raw_model = model
         self.model = model
+        self.vae = vae
 
         if is_distributed():
             self.model = DDP(self.raw_model, device_ids=[torch.cuda.current_device()])
@@ -93,6 +96,7 @@ class Trainer:
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
             PredictorMetadata.EtaSchedule: self.schedules.eta.__class__.__name__,
+            PredictorMetadata.VAE: self.vae.model_id if self.vae is not None else None,
         }
 
         model.save(**metadata)
@@ -161,6 +165,8 @@ class Trainer:
                 self.optimizer.zero_grad()
 
                 X = X.to(device, non_blocking=True)
+                if self.vae is not None:
+                    X = self.vae.encode(X)
 
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:

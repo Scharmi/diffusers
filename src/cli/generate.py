@@ -23,7 +23,7 @@ from src.config.presets import (
     get_solver_T,
 )
 from src.generator import Generator
-from src.model import Predictor, PredictorHuggingface
+from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
 
@@ -130,7 +130,13 @@ def generate(
         T=solver_T,
     )
 
-    generator = Generator(solver=solver)
+    vae_model_id = model.metadata.get(PredictorMetadata.VAE, None)
+    vae = None
+    if vae_model_id:
+        logger.info(f"Using VAE: {vae_model_id}")
+        vae = VAE(model_id=vae_model_id).cuda()
+
+    generator = Generator(solver=solver, vae=vae)
 
     logger.info(f"Generating {n_samples} samples...")
 

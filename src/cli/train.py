@@ -17,6 +17,7 @@ from src.config.presets import (
     SCHEDULE_CONFIGS,
     get_timesampler,
 )
+from src.model import VAE
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.train import Trainer, TrainingConfig
@@ -64,6 +65,10 @@ def train(
         True,
         "--amp/--no-amp",
         help="Whether to use automatic mixed precision training",
+    ),
+    use_vae: bool = typer.Option(True, "--vae/--no-vae", help="Whether to use VAE"),
+    vae_model_id: str = typer.Option(
+        "madebyollin/taesd", "--vae-model-id", help="HF repo ID for the VAE"
     ),
     n_workers: int = typer.Option(
         1, "--n-workers", help="Number of dataloader workers"
@@ -121,12 +126,29 @@ def train(
             },
         )
 
+    vae = None
+    if use_vae:
+        logger.info(f"Using VAE: {vae_model_id}")
+        vae = VAE(model_id=vae_model_id).cuda()
+        logger.info(f"VAE parameters: {sum(p.numel() for p in vae.parameters()):,}")
+
+    img_width = dataset_config.img_size
+    img_height = dataset_config.img_size
+    n_channels = dataset_config.channels
+    logger.info(f"Image size: {n_channels}x{img_width}x{img_height}")
+
+    if vae is not None:
+        img_width = vae.get_latent_width(img_width)
+        img_height = vae.get_latent_height(img_height)
+        n_channels = vae.get_latent_channels()
+        logger.info(f"Latent size: {n_channels}x{img_width}x{img_height}")
+
     model = model_class(
         T=predictor_t,
         model_size=model_size,
-        n_channels=dataset_config.channels,
-        img_width=dataset_config.img_size,
-        img_height=dataset_config.img_size,
+        n_channels=n_channels,
+        img_width=img_width,
+        img_height=img_height,
         suffix=f"_{dataset.value}_{model_suffix}"
         if model_suffix
         else f"_{dataset.value}",
@@ -138,6 +160,7 @@ def train(
 
     trainer = Trainer(
         model=model,
+        vae=vae,
         schedules=schedules,
         config=TrainingConfig(
             time_sampler=timesampler_config,

@@ -3,10 +3,10 @@ from typing import Any, Type, cast
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
-from torchvision import transforms, datasets
+from torchvision import datasets, transforms
 
 from src.config import DatasetConfig
-from src.distributed import get_rank, is_distributed, get_world_size
+from src.distributed import get_rank, get_world_size, is_distributed
 
 
 def get_device():
@@ -65,6 +65,11 @@ def get_dataloader(
             transforms.CenterCrop(dataset_config.img_size),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
+            transforms.Lambda(
+                lambda x: x.repeat(dataset_config.channels, 1, 1)
+                if x.shape[0] == 1 and dataset_config.channels > 1
+                else x
+            ),
             transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     )

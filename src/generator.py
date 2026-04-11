@@ -4,6 +4,7 @@ import torch
 from loguru import logger
 from PIL.GifImagePlugin import TYPE_CHECKING
 
+from src.model import VAE
 from src.solver import Solver
 from src.timestep import Timestep, TimestepConfig
 
@@ -11,6 +12,7 @@ from src.timestep import Timestep, TimestepConfig
 @dataclass
 class Generator:
     solver: Solver
+    vae: VAE | None = None
 
     # Assumes timesteps are provided in decreasing order.
     # In case of continuous timesteps, max_t should be set to values
@@ -75,5 +77,8 @@ class Generator:
 
         for i in range(len(timesteps) - 1):
             x_t = self.solver.step(x_t, timesteps[i], timesteps[i + 1])
+
+        if self.vae is not None:
+            x_t = self.vae.decode(x_t)
 
         return x_t

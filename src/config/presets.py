@@ -80,7 +80,7 @@ EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
     EquationType.probability_flow: ProbabilityFlow,
 }
 
-# Image sizes should typically be powers of 2 or UNet may fail for bigger models.
+# Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
     DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
@@ -88,7 +88,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 64, path="data/celebA"),
     DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
     DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 64, split="unlabeled"),
-    DatasetType.food101: DatasetConfig(datasets.Food101, 3, 128, split="train"),
+    DatasetType.food101: DatasetConfig(datasets.Food101, 3, 512, split="train"),
 }
 
 MODEL_CONFIGS: dict[ModelType, Type[Predictor]] = {
