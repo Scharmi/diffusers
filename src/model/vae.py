@@ -20,6 +20,9 @@ class VAE(nn.Module):
             self.autoencoder = AutoencoderKL.from_pretrained(model_id)
             self.is_tiny = False
 
+        self.autoencoder.enable_tiling()
+        self.autoencoder.enable_slicing()
+
         self.autoencoder.eval()
         self.autoencoder.requires_grad_(False)
 
