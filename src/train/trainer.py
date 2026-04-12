@@ -166,7 +166,7 @@ class Trainer:
 
                 X = X.to(device, non_blocking=True)
                 if self.vae is not None:
-                    X = self.vae.encode(X)
+                    X = self.vae.encode(X.half()).float()
 
                 vae_compute_time = time.time() - end_time - data_time
 
