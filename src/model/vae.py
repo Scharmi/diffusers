@@ -14,14 +14,18 @@ class VAE(nn.Module):
 
         if "taesd" in model_id.lower() or "tiny" in model_id.lower():
             logger.info("Switching to Tiny AutoEncoder")
-            self.autoencoder = AutoencoderTiny.from_pretrained(model_id)
+            self.autoencoder = AutoencoderTiny.from_pretrained(
+                model_id, torch_dtype=torch.float16
+            )
             self.is_tiny = True
         else:
-            self.autoencoder = AutoencoderKL.from_pretrained(model_id)
+            self.autoencoder = AutoencoderKL.from_pretrained(
+                model_id, torch_dtype=torch.float16
+            )
             self.is_tiny = False
 
-        self.autoencoder.enable_tiling()
-        self.autoencoder.enable_slicing()
+        # self.autoencoder.enable_tiling()
+        # self.autoencoder.enable_slicing()
 
         self.autoencoder.eval()
         self.autoencoder.requires_grad_(False)

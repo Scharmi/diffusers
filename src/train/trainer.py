@@ -168,6 +168,8 @@ class Trainer:
                 if self.vae is not None:
                     X = self.vae.encode(X)
 
+                vae_compute_time = time.time() - end_time - data_time
+
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:
                         t = torch.rand(X.size(0), device=X.device) * solver_T
@@ -215,7 +217,9 @@ class Trainer:
                 self.scaler.update()
                 lr_scheduler.step()
 
-                compute_time = time.time() - end_time - data_time
+                unet_compute_time = (
+                    time.time() - end_time - data_time - vae_compute_time
+                )
 
                 if (
                     ema_wrapper is not None
@@ -244,7 +248,8 @@ class Trainer:
                         epoch=epoch,
                         global_step=self.total_steps_executed,
                         data_time=data_time,
-                        compute_time=compute_time,
+                        vae_compute_time=vae_compute_time,
+                        unet_compute_time=unet_compute_time,
                     )
 
                 if (
@@ -274,7 +279,8 @@ class Trainer:
         epoch: int,
         global_step: int,
         data_time: float,
-        compute_time: float,
+        vae_compute_time: float,
+        unet_compute_time: float,
     ):
         device = torch.cuda.current_device()
 
@@ -300,7 +306,8 @@ class Trainer:
                 "stats/ram_total_gb": sys_mem.total / gb_divider,
                 "stats/ram_utilization_%": sys_mem.percent,
                 "perf/data_time_sec": data_time,
-                "perf/compute_time_sec": compute_time,
+                "perf/vae_compute_time_sec": vae_compute_time,
+                "perf/unet_compute_time_sec": unet_compute_time,
                 "global_step": self.total_steps_executed,
             },
             step=self.total_steps_executed,
