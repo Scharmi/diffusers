@@ -79,6 +79,6 @@ class Generator:
             x_t = self.solver.step(x_t, timesteps[i], timesteps[i + 1])
 
         if self.vae is not None:
-            x_t = self.vae.decode(x_t)
+            x_t = self.vae.decode(x_t.half()).float()
 
         return x_t

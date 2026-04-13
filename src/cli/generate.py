@@ -60,6 +60,9 @@ def generate(
     sampling_schedule: SamplingScheduleType = typer.Option(
         SamplingScheduleType.edm, "--sampling-schedule", help="Time sampling"
     ),
+    vae_low_memory: bool = typer.Option(
+        False, "--vae-low-memory", help="Enable low memory mode for VAE"
+    ),
     n_steps: int = typer.Option(100, "--n-steps", help="Number of solver steps"),
     n_samples: int = typer.Option(
         30, "--n-samples", help="Number of images to generate"
@@ -134,7 +137,7 @@ def generate(
     vae = None
     if vae_model_id:
         logger.info(f"Using VAE: {vae_model_id}")
-        vae = VAE(model_id=vae_model_id).cuda()
+        vae = VAE(model_id=vae_model_id, low_memory=vae_low_memory).cuda()
 
     generator = Generator(solver=solver, vae=vae)
 

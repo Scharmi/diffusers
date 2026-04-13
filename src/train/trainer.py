@@ -116,6 +116,7 @@ class Trainer:
             self.current_epoch = state["epoch"]
             self.total_steps_executed = state["total_steps"]
             self.optimizer.load_state_dict(state["optimizer_state_dict"])
+            self.scaler.load_state_dict(state["scaler_state_dict"])
 
             logger.info(
                 f"Resuming training from epoch {self.current_epoch}, step {self.total_steps_executed}"

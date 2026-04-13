@@ -3,10 +3,12 @@
 #SBATCH --job-name=prosem
 #SBATCH --account=g102-2480
 #SBATCH --qos=normal
-#SBATCH --time=03:00:00
+#SBATCH --time=10:00:00
 #SBATCH --ntasks=4
+#SBATCH --mem=48G
+#SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:4
-#SBATCH --constraint=volta
+#SBATCH --constraint=volta32G
 #SBATCH --output=output.txt
 
 export MASTER_PORT=12340

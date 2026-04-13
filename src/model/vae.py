@@ -8,6 +8,7 @@ class VAE(nn.Module):
     def __init__(
         self,
         model_id: str = "madebyollin/taesd",
+        low_memory: bool = False,
     ):
         super().__init__()
         self.model_id = model_id
@@ -24,8 +25,9 @@ class VAE(nn.Module):
             )
             self.is_tiny = False
 
-        # self.autoencoder.enable_tiling()
-        # self.autoencoder.enable_slicing()
+        if low_memory:
+            self.autoencoder.enable_tiling()
+            self.autoencoder.enable_slicing()
 
         self.autoencoder.eval()
         self.autoencoder.requires_grad_(False)
