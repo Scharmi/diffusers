@@ -48,6 +48,15 @@ class Trainer:
     raw_model: Predictor
     model: nn.Module
     vae: VAE | None
+    schedules: ScheduleGroup
+    config: TrainingConfig
+    optimizer: optim.Optimizer
+    criterion: nn.Module
+    scaler: GradScaler
+    lr_scheduler_state_dict: dict | None
+    lr_scheduler: WarmupCosineLR
+    current_epoch: int
+    total_steps_executed: int
 
     def __init__(
         self,
@@ -61,7 +70,11 @@ class Trainer:
         self.vae = vae
 
         if is_distributed():
-            self.model = DDP(self.raw_model, device_ids=[torch.cuda.current_device()])
+            self.model = DDP(
+                self.raw_model,
+                device_ids=[torch.cuda.current_device()],
+                gradient_as_bucket_view=True,
+            )
 
         self.schedules = schedules
         self.config = config
@@ -106,6 +119,7 @@ class Trainer:
             "total_steps": self.total_steps_executed,
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
+            "lr_scheduler_state_dict": self.lr_scheduler.state_dict(),
         }
         torch.save(trainer_state, self._get_trainer_state_path())
 
@@ -117,6 +131,7 @@ class Trainer:
             self.total_steps_executed = state["total_steps"]
             self.optimizer.load_state_dict(state["optimizer_state_dict"])
             self.scaler.load_state_dict(state["scaler_state_dict"])
+            self.lr_scheduler_state_dict = state.get("lr_scheduler_state_dict", None)
 
             logger.info(
                 f"Resuming training from epoch {self.current_epoch}, step {self.total_steps_executed}"
@@ -129,11 +144,14 @@ class Trainer:
         solver_T = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
-        lr_scheduler = WarmupCosineLR(
+        self.lr_scheduler = WarmupCosineLR(
             self.optimizer,
             total_steps=total_training_steps,
-            last_epoch=self.total_steps_executed - 1,
         )
+
+        if self.lr_scheduler_state_dict is not None:
+            self.lr_scheduler.load_state_dict(self.lr_scheduler_state_dict)
+            logger.info("Loaded learning rate scheduler state from checkpoint")
 
         ema_wrapper = None
         if self.config.use_ema:
@@ -216,7 +234,7 @@ class Trainer:
 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                lr_scheduler.step()
+                self.lr_scheduler.step()
 
                 unet_compute_time = (
                     time.time() - end_time - data_time - vae_compute_time
