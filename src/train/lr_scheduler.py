@@ -32,5 +32,9 @@ class WarmupCosineLR(SequentialLR):
             optimizer,
             schedulers=[warmup_scheduler, cosine_scheduler],
             milestones=[warmup_steps],
-            last_epoch=last_epoch,
+            last_epoch=-1,
         )
+
+        if last_epoch > 0:
+            for _ in range(last_epoch):
+                self.step()
