@@ -1,5 +1,8 @@
+import os
 from typing import Optional
 
+import matplotlib.pyplot as plt
+import torch
 import typer
 from loguru import logger
 
@@ -26,11 +29,11 @@ from src.schedule.sampling.ays import (
     AYSSamplingSchedule,
 )
 
-app = typer.Typer(help="Find steps with AYS")
+app = typer.Typer(help="Align Your Steps")
 
 
-@app.callback(invoke_without_command=True)
-def ays(
+@app.command(name="tune", help="Find optimal steps")
+def tune(
     model_name: ModelType = typer.Option(
         ModelType.edm, "--model", help="Network architecture"
     ),
@@ -198,3 +201,79 @@ def ays(
     timesteps = ays_schedule.get_timesteps(n_steps=40, initial_t=initial_t)
 
     logger.info(f"Final AYS schedule: {timesteps.steps}")
+
+
+@app.command(name="plot", help="Plot generated AYS schedule")
+def plot(
+    checkpoint_path: str = typer.Argument(..., help="Path to checkpoint"),
+    compare_with: SamplingScheduleType = typer.Option(
+        SamplingScheduleType.edm,
+        "--compare",
+        help="Baseline to compare",
+    ),
+    output: str = typer.Option("ays_plot.png", "--output", "-o"),
+):
+    if not os.path.exists(checkpoint_path):
+        logger.error(f"Checkpoint file not found: {checkpoint_path}")
+        raise typer.Exit(code=1)
+
+    state = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
+    ays_steps = state["steps"].numpy()[::-1]
+
+    n_steps = len(ays_steps) - 1
+    max_t = ays_steps[-1]
+    stage = state.get("stage", "Unknown")
+
+    logger.info(
+        f"Found AYS schedule for stage {stage} with {n_steps} steps (T={max_t:.2f})"
+    )
+
+    if compare_with == SamplingScheduleType.edm:
+        baseline_sched = EDMSamplingSchedule(T=max_t)
+    elif compare_with == SamplingScheduleType.linear:
+        baseline_sched = LinearSamplingSchedule(T=max_t, max_t=max_t)
+    else:
+        logger.error(f"Unsupported baseline comparison: {compare_with.value}")
+        raise typer.Exit(code=1)
+
+    baseline_steps = (
+        baseline_sched.get_timesteps(n_steps=n_steps).steps.cpu().numpy()[::-1]
+    )
+
+    plt.figure(figsize=(10, 6))
+
+    plt.plot(
+        range(len(baseline_steps)),
+        baseline_steps,
+        marker="s",
+        linestyle="--",
+        color="gray",
+        alpha=0.7,
+        label=f"Baseline ({compare_with.value.upper()})",
+    )
+
+    plt.plot(
+        range(len(ays_steps)),
+        ays_steps,
+        marker="o",
+        linestyle="-",
+        color="blue",
+        linewidth=2,
+        label=f"AYS (Stage {stage})",
+    )
+
+    plt.title(f"AYS vs {compare_with.value.upper()}")
+    plt.xlabel("Step Index")
+    plt.ylabel("Timestep (t)")
+
+    plt.yscale("symlog", linthresh=1e-3)
+
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+    plt.legend()
+    plt.tight_layout()
+
+    plt.savefig(output, dpi=200)
+
+
+if __name__ == "__main__":
+    app()

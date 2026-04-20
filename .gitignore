@@ -16,3 +16,4 @@ wandb
 .ruff_cache/
 
 *.sif
+*.png
