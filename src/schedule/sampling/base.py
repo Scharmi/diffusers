@@ -4,7 +4,7 @@ import torch
 
 from src.timestep import Timestep, TimestepConfig
 
-EPSILON = 1e-5
+EPSILON = 1e-9
 
 
 class SamplingSchedule(ABC):

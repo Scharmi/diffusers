@@ -1,4 +1,5 @@
 import math
+import os
 from dataclasses import dataclass
 from typing import Generator
 
@@ -16,6 +17,13 @@ from src.schedule import ScheduleGroup
 from src.schedule.sampling import EPSILON, SamplingSchedule
 from src.timestep import Timestep, TimestepConfig
 
+STAGE_10 = 10
+STAGE_20 = 20
+STAGE_40 = 40
+
+MIN_T = 1e-4
+MIN_GAP = 1e-5
+
 
 @dataclass
 class AYSConfig:
@@ -26,8 +34,8 @@ class AYSConfig:
     n_monte_carlo_iter: int = 1000
     save_interval_iter: int = 10
     importance_sampling: bool = True
-    inverse_transform_sampling_grid_size: int = int(1e5)
-    save_file: str = "generated/ays_timesteps.pt"
+    inverse_transform_sampling_grid_size: int = 1000
+    save_file: str = "generated/ays_timesteps.pth"
 
 
 class AYSSamplingSchedule(SamplingSchedule):
@@ -60,86 +68,95 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         self.timestep_config = TimestepConfig(kind="continuous", T=solver_T)
 
+    def _save_state(self, steps: torch.Tensor, stage: int, current_iter: int):
+        state = {
+            "steps": torch.flip(steps.cpu(), dims=[0]),
+            "stage": stage,
+            "current_iter": current_iter,
+        }
+        os.makedirs(os.path.dirname(self.config.save_file), exist_ok=True)
+        torch.save(state, self.config.save_file)
+
     def get_timesteps(
-        self, n_steps: int = 10, *, initial_t: Timestep | None = None, **kwargs
+        self, n_steps: int = 40, *, initial_t: Timestep | None = None, **kwargs
     ) -> Timestep:
-        if initial_t is not None:
-            t = initial_t.adapt(self.timestep_config).steps
-        else:
-            logger.warning(
-                f"No initial_t provided. Remember to set correct max_t: {self.max_t}"
+        assert n_steps >= 10
+
+        stage = STAGE_10
+        start_iter = 0
+        steps = None
+
+        if os.path.exists(self.config.save_file):
+            logger.info(
+                f"Resuming AYS optimization from checkpoint: {self.config.save_file}"
             )
-            t = torch.linspace(0.0, self.max_t, 11)
+            state = torch.load(
+                self.config.save_file,
+                weights_only=False,
+            )
+            steps = torch.flip(state["steps"].to(self.config.device), dims=[0])
+            stage = state["stage"]
+            start_iter = state["current_iter"]
+            logger.info(f"Resuming Stage: {stage}-step, Iteration: {start_iter}")
+        else:
+            logger.info("No checkpoint found. Starting fresh AYS optimization.")
+            if initial_t is not None:
+                steps = initial_t.adapt(self.timestep_config).reverse().steps
+                assert len(steps) == 11
+            else:
+                logger.warning(
+                    f"No initial_t provided. Falling back to linear schedule. Remember to set max_t: {self.max_t}"
+                )
+                steps = torch.linspace(0.0, self.max_t, 11, device=self.config.device)
 
-        t = self._get_10_timesteps(t)
+        assert steps[0] <= steps[-1]
 
-        if n_steps <= 10:
-            return self._interpolate_timesteps(t, n_steps)
+        logger.info(f"Starting with steps: {steps}")
 
-        t = self.get_20_timesteps(t)
+        while True:
+            is_first_stage = stage == STAGE_10
+            max_iterations = (
+                self.config.max_iter
+                if is_first_stage
+                else self.config.max_finetune_iter
+            )
 
-        if n_steps <= 20:
-            return self._interpolate_timesteps(t, n_steps)
+            steps = self._optimize(
+                steps,
+                max_iter=max_iterations,
+                desc=f"AYS {stage}-step",
+                stage=stage,
+                start_iter=start_iter,
+                skip_even=not is_first_stage,
+            )
 
-        t = self.get_40_timesteps(t)
+            if (stage >= n_steps and not is_first_stage) or stage == STAGE_40:
+                break
 
-        return self._interpolate_timesteps(t, n_steps)
+            stage *= 2
+            start_iter = 0
+            steps = self._subdivide(steps)
 
-    def _get_10_timesteps(self, initial_steps: torch.Tensor) -> Timestep:
-        assert len(initial_steps) == 11
-
-        steps = self._optimize(
-            initial_steps,
-            max_iter=self.config.max_iter,
-            desc="AYS 10-step",
-            suffix="_10",
-        )
-
-        return Timestep(self.timestep_config, steps)
-
-    def get_20_timesteps(self, steps_10: Timestep) -> Timestep:
-        assert len(steps_10) == 11
-        steps = steps_10.adapt(self.timestep_config).steps
-        steps = self._subdivide(steps)
-
-        steps = self._optimize(
-            steps,
-            max_iter=self.config.max_finetune_iter,
-            desc="AYS 20-step",
-            skip_even=True,
-            suffix="_20",
-        )
-
-        return Timestep(self.timestep_config, steps)
-
-    def get_40_timesteps(self, steps_20: Timestep) -> Timestep:
-        assert len(steps_20) == 21
-        steps = steps_20.adapt(self.timestep_config).steps
-        steps = self._subdivide(steps)
-
-        steps = self._optimize(
-            steps,
-            max_iter=self.config.max_finetune_iter,
-            desc="AYS 40-step",
-            skip_even=True,
-            suffix="_40",
-        )
-
-        return Timestep(self.timestep_config, steps)
+        return self._interpolate_timesteps(
+            Timestep(self.timestep_config, steps), n_steps
+        ).reverse()
 
     def _optimize(
         self,
         steps: torch.Tensor,
         max_iter: int,
         desc: str,
-        *,
+        stage: int,
+        start_iter: int = 0,
         skip_even: bool = False,
-        suffix: str = "",
     ) -> torch.Tensor:
-        pbar_outer = tqdm(range(max_iter), desc=desc)
+        if start_iter >= max_iter:
+            return steps
+
+        pbar_outer = tqdm(total=max_iter, initial=start_iter, desc=desc)
 
         no_change = False
-        current_iter = 0
+        current_iter = start_iter
 
         while not no_change and current_iter < max_iter:
             no_change = True
@@ -181,14 +198,18 @@ class AYSSamplingSchedule(SamplingSchedule):
 
             pbar_outer.update(1)
 
-            if current_iter % self.config.save_interval_iter == 0:
-                torch.save(
-                    Timestep(self.timestep_config, steps),
-                    f"{self.config.save_file}{suffix}",
+            assert torch.all(steps[1:] >= steps[:-1])
+
+            if (
+                current_iter % self.config.save_interval_iter == 0
+                or current_iter == max_iter
+                or no_change
+            ):
+                self._save_state(
+                    steps, stage, current_iter if not no_change else max_iter
                 )
 
         pbar_outer.close()
-
         return steps
 
     def _interpolate_timesteps(self, timesteps: Timestep, n_steps: int) -> Timestep:
@@ -214,10 +235,9 @@ class AYSSamplingSchedule(SamplingSchedule):
         for i in range(len(steps) - 1):
             t_start = steps[i].item()
             t_end = steps[i + 1].item()
-
             new_steps.append(t_start)
 
-            if t_start < EPSILON:
+            if t_start < MIN_T:
                 t_mid = (t_start + t_end) / 2.0
             else:
                 # t_mid = math.exp(0.5 * (math.log(t_start) + math.log(t_end)))
@@ -226,24 +246,29 @@ class AYSSamplingSchedule(SamplingSchedule):
             new_steps.append(t_mid)
 
         new_steps.append(steps[-1].item())
-
         return torch.tensor(new_steps, device=steps.device)
 
     def _get_candidates(self, s: float, t: float, t_next: float) -> torch.Tensor:
-        assert s + EPSILON < t_next - EPSILON, (
-            f"Invalid range: [{s}, {t_next}] +- {EPSILON}"
-        )
+        if t_next - s <= 2 * MIN_GAP:
+            return torch.tensor([t], device=self.config.device)
+
+        lower_bound = s + MIN_GAP
+        upper_bound = t_next - MIN_GAP
 
         candidates = torch.linspace(
-            s + EPSILON, t_next - EPSILON, self.config.n_candidates - 1
+            lower_bound, upper_bound, self.config.n_candidates - 1
         )
         candidates = torch.cat([torch.tensor([t]), candidates])
+        candidates = torch.clamp(candidates, min=lower_bound, max=upper_bound)
 
         return candidates.sort().values
 
     def _estimate_klub(self, t_start: float, t_end: float) -> float:
         klub_sum = 0.0
         sample_count = 0
+
+        t_start = max(t_start, MIN_T)
+        t_end = max(t_end, t_start + MIN_GAP)
 
         for X in self._get_data_samples():
             t_samples = (
@@ -285,7 +310,7 @@ class AYSSamplingSchedule(SamplingSchedule):
             pred_diff_norm = (pred_t_end - pred_t).view(X.size(0), -1).norm(dim=1) ** 2
 
             factor = (
-                (t_end - t_start)
+                torch.tensor((t_end - t_start), device=self.config.device)
                 if not self.config.importance_sampling
                 else self.schedules.edm_sigma(timestep_samples) ** 3
                 / (1 / (t_start**2 + 0.5**2) - 1 / (t_end**2 + 0.5**2))
@@ -327,8 +352,10 @@ class AYSSamplingSchedule(SamplingSchedule):
 
     # Inverse Transform Sampling
     def _importance_sample(self, n: int, t_start: float, t_end: float) -> torch.Tensor:
-        c = 0.5
+        t_start = max(t_start, MIN_T)
+        t_end = max(t_end, t_start + MIN_GAP)
 
+        c = 0.5
         t_grid = torch.linspace(
             t_start,
             t_end,
@@ -337,9 +364,10 @@ class AYSSamplingSchedule(SamplingSchedule):
         )
 
         pi_t = (1.0 / t_grid**3) * (1.0 / (t_grid**2 + c**2) - 1.0 / (t_end**2 + c**2))
+        print(t_start, t_end, t_grid.min(), t_grid.max(), pi_t.min(), pi_t.max())
         assert torch.all(pi_t >= 0)
 
-        pi_t = torch.clamp(pi_t, min=1e-10)
+        pi_t = torch.clamp(pi_t, min=EPSILON)
 
         cdf = torch.cumsum(pi_t, dim=0)
         cdf = cdf / cdf[-1]

@@ -58,7 +58,10 @@ def ays(
         "--initial-schedule",
         help="Initial time sampling",
     ),
-    suffix: str = typer.Option("default", "--suffix", help="Suffix for checkpoint"),
+    checkpoint_path: Optional[str] = typer.Option(
+        None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
+    ),
+    suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),
     max_iter: int = typer.Option(
         300, "--max-iter", help="Max iterations for 10-step stage"
     ),
@@ -72,7 +75,7 @@ def ays(
         1000, "--n-mc-iter", help="Number of Monte Carlo steps"
     ),
     save_interval_iter: int = typer.Option(
-        10, "--save-interval", help="Checkpoint frequency"
+        1, "--save-interval", help="Checkpoint frequency"
     ),
     importance_sampling: bool = typer.Option(
         True,
@@ -80,7 +83,7 @@ def ays(
         help="Use importance sampling for AYS",
     ),
     its_grid_size: int = typer.Option(
-        100000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
+        1000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -156,7 +159,15 @@ def ays(
             f"Unsupported initial schedule: {initial_sampling_schedule.value}"
         )
 
-    save_file_path = f"generated/ays_timesteps_{suffix}.pth"
+    save_file_path = (
+        checkpoint_path
+        if checkpoint_path
+        else (
+            f"generated/ays_timesteps_{suffix}.pth"
+            if suffix
+            else "generated/ays_timesteps.pth"
+        )
+    )
     ays_config = AYSConfig(
         max_iter=max_iter,
         max_finetune_iter=max_finetune_iter,
